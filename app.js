@@ -4,7 +4,7 @@ const session = require("express-session");
 const { MongoClient } = require("mongodb");
 const OpenAI = require("openai");
 const path = require("path");
-
+app.use(express.static("public"));
 
 const PORT = process.env.PORT || 10000;
 const MONGO_URI = process.env.MONGO_URI;
