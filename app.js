@@ -17,9 +17,9 @@ async function connectDB() {
     await client.connect();
     const db = client.db("myDatabase");
     collection = db.collection("recipes");
-    console.log("✅ Connected to MongoDB");
+    console.log("Connected to MongoDB");
   } catch (err) {
-    console.error("❌ Error connecting to MongoDB:", err);
+    console.error(" Error connecting to MongoDB:", err);
   }
 }
 connectDB();
@@ -40,4 +40,4 @@ app.get("/recipes", async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
