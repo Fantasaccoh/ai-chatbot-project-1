@@ -1,116 +1,114 @@
+require("dotenv").config();
 const express = require("express");
 const session = require("express-session");
-const bodyParser = require("body-parser");
-const bcrypt = require("bcrypt");
-const { MongoClient, ObjectId } = require("mongodb");
+const { MongoClient } = require("mongodb");
+const OpenAI = require("openai");
 const path = require("path");
-const { Configuration, OpenAIApi } = require("openai");
-require("dotenv").config();
+
+
+const PORT = process.env.PORT || 10000;
+const MONGO_URI = process.env.MONGO_URI;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
+});
+
 
 const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static("public"));
+
+app.use(
+  session({
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: true,
+  })
+);
 
 
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
-app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false
-}));
-app.use(express.static(path.join(__dirname, "public")));
-
-
-const uri = process.env.MONGO_URI;
-const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
-let usersCollection;
-let sessionsCollection;
+let db, usersCollection, sessionsCollection;
 
 async function connectDB() {
+  const client = new MongoClient(MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+
   await client.connect();
-  const db = client.db("chatbotDB");
+  db = client.db("chatbotDB"); // database name
   usersCollection = db.collection("users");
-  sessionsCollection = db.collection("chatSessions");
-  console.log("✅ Connected to MongoDB Atlas");
+  sessionsCollection = db.collection("sessions");
+  console.log("Connected to MongoDB!");
 }
 
-connectDB();
+connectDB().catch((err) => {
+  console.error("Error connecting to MongoDB:", err);
+});
 
-
-const openai = new OpenAIApi(new Configuration({
-  apiKey: process.env.OPENAI_API_KEY
-}));
-
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 app.post("/signup", async (req, res) => {
   const { username, password } = req.body;
-  const userExists = await usersCollection.findOne({ username });
-  if (userExists) return res.status(400).send("User already exists");
+  const existingUser = await usersCollection.findOne({ username });
+  if (existingUser) return res.status(400).send("Username already exists");
 
-  const hashed = await bcrypt.hash(password, 10);
-  await usersCollection.insertOne({ username, password: hashed });
-  res.send("Signup successful");
+  await usersCollection.insertOne({ username, password });
+  req.session.username = username;
+  res.send({ success: true });
 });
 
-// Login
+
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
-  const user = await usersCollection.findOne({ username });
-  if (!user) return res.status(400).send("Invalid username");
+  const user = await usersCollection.findOne({ username, password });
+  if (!user) return res.status(400).send("Invalid credentials");
 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).send("Invalid password");
-
-  req.session.userId = user._id;
-  res.send("Login successful");
+  req.session.username = username;
+  res.send({ success: true });
 });
 
+app.get("/history", async (req, res) => {
+  if (!req.session.username) return res.status(401).send("Unauthorized");
+  const history = await sessionsCollection
+    .find({ username: req.session.username })
+    .toArray();
+  res.send(history);
+});
 
-function authMiddleware(req, res, next) {
-  if (!req.session.userId) return res.status(401).send("Not logged in");
-  next();
-}
-
-app.post("/chat", authMiddleware, async (req, res) => {
+app.post("/chat", async (req, res) => {
+  if (!req.session.username) return res.status(401).send("Unauthorized");
   const { message } = req.body;
 
   try {
-
-    const response = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: message }]
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: message }],
     });
 
-    const botResponse = response.data.choices[0].message.content;
-
+    const responseText = completion.choices[0].message.content;
 
     await sessionsCollection.insertOne({
-      userId: req.session.userId,
-      message,
-      response: botResponse,
-      createdAt: new Date()
+      username: req.session.username,
+      userMessage: message,
+      botResponse: responseText,
+      timestamp: new Date(),
     });
 
-    res.json({ response: botResponse });
+    res.send({ response: responseText });
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Error communicating with OpenAI");
+    console.error("OpenAI error:", err);
+    res.status(500).send("Error generating response");
   }
 });
 
-app.get("/history", authMiddleware, async (req, res) => {
-  const history = await sessionsCollection.find({ userId: req.session.userId }).toArray();
-  res.json(history);
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
-
-app.get("/chat.html", authMiddleware, (req, res) => {
-  res.sendFile(path.join(__dirname, "public/chat.html"));
-});
-
-
-app.post("/logout", authMiddleware, (req, res) => {
-  req.session.destroy();
-  res.send("Logged out");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
