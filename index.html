@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple College Chatbot Project</title>
+   
+    <script src="https://cdn.tailwindcss.com"></script>
+  
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    
+        #chat-area::-webkit-scrollbar { width: 6px; }
+        #chat-area::-webkit-scrollbar-thumb { background-color: #d1d5db; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+   
+    <div class="w-full max-w-2xl bg-white rounded-lg shadow-xl flex flex-col h-[80vh] min-h-[500px]">
+        
+      
+        <header class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+            <h1 class="text-xl font-semibold text-gray-800">Ai chat bot</h1>
+            <div id="status-info" class="text-right text-xs">
+                <p id="auth-status" class="font-medium text-gray-600">Status: Connecting...</p>
+                
+                <p id="user-id" class="text-gray-500 mt-1">User ID: N/A</p>
+            </div>
+        </header>
+
+       
+        <main id="chat-area" class="flex-grow p-4 overflow-y-auto space-y-4 custom-scrollbar">
+            <div id="initial-message" class="text-center p-8 text-gray-500 italic">
+                Initializing application...
+            </div>
+        </main>
+
+      
+        <div id="error-box" class="hidden p-3 mx-4 my-2 text-sm font-medium text-red-700 bg-red-100 rounded-lg shadow-inner"></div>
+
+        <!-- Input Form -->
+        <footer class="p-4 border-t bg-gray-50 rounded-b-lg">
+            <form id="message-form" class="flex space-x-3">
+                <input
+                    type="text"
+                    id="message-input"
+                    placeholder="Type a message..."
+                    class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                    disabled
+                >
+                <button
+                    type="submit"
+                    id="send-button"
+                    class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition duration-150 disabled:bg-indigo-400"
+                    disabled
+                >
+                    Send
+                </button>
+            </form>
+        </footer>
+    </div>
+
+  
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, collection, query, orderBy, onSnapshot, 
+            addDoc, serverTimestamp, doc, setLogLevel 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+      
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+       
+        const API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+        const API_KEY = "";
+        const SYSTEM_INSTRUCTION = "You are 'The Clarity Coach', a straightforward and concise AI designed to help the user organize their thoughts. Keep responses short and action-oriented. Do not use complex language or refer to yourself as an AI or model.";
+        
+        
+        const chatArea = document.getElementById('chat-area');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const authStatus = document.getElementById('auth-status');
+        const userIdDisplay = document.getElementById('user-id');
+        const errorBox = document.getElementById('error-box');
+        const initialMessage = document.getElementById('initial-message');
+
+        let db, auth, currentUserId = null;
+        let isProcessing = false;
+
+       
+
+       
+        function displayError(message) {
+            errorBox.textContent = `Error: ${message}`;
+            errorBox.classList.remove('hidden');
+            console.error(message);
+        }
+
+       
+        function clearError() {
+            errorBox.classList.add('hidden');
+            errorBox.textContent = '';
+        }
+
+        
+        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+       
+        function renderMessage(message) {
+            
+            let textContent = message.text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            textContent = textContent.replace(/\n/g, '<br/>');
+
+            const isUser = message.sender === 'user';
+            const timestamp = message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = `max-w-xs px-4 py-3 rounded-xl shadow-md text-sm ${
+                isUser 
+                ? 'bg-indigo-600 text-white rounded-br-none' 
+                : 'bg-gray-200 text-gray-800 rounded-tl-none'
+            }`;
+            
+            bubble.innerHTML = `
+                <p>${textContent}</p>
+                <span class="block text-right pt-2 text-xs opacity-70">${timestamp}</span>
+            `;
+
+            const avatar = document.createElement('div');
+            avatar.className = `w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg ${
+                isUser 
+                ? 'bg-indigo-100 text-indigo-700 ml-2 order-2' 
+                : 'bg-green-100 text-green-700 mr-2 order-1'
+            }`;
+            avatar.textContent = isUser ? 'U' : 'C';
+
+            messageDiv.appendChild(isUser ? bubble : avatar);
+            messageDiv.appendChild(isUser ? avatar : bubble);
+
+            chatArea.appendChild(messageDiv);
+        }
+
+     
+        function scrollToBottom() {
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        
+        async function initializeAppAndAuth() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    displayError("Firebase configuration is missing.");
+                    return;
+                }
+                
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+             
+                setLogLevel('Debug'); 
+
+                authStatus.textContent = 'Status: Authenticating...';
+
+             
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken)
+                        .catch(e => {
+                            console.warn("Custom token failed, signing in anonymously:", e);
+                            signInAnonymously(auth); 
+                        });
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+            
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        authStatus.textContent = 'Status: Ready';
+                        userIdDisplay.textContent = `User ID: ${currentUserId}`;
+                        messageInput.disabled = false;
+                        sendButton.disabled = false;
+                        initialMessage.textContent = 'Welcome! Start chatting with The Clarity Coach.';
+                        
+                      
+                        listenToHistory();
+                    } else {
+                        currentUserId = null;
+                        authStatus.textContent = 'Status: Disconnected';
+                        userIdDisplay.textContent = 'User ID: N/A';
+                        messageInput.disabled = true;
+                        sendButton.disabled = true;
+                        chatArea.innerHTML = '<div class="text-center p-8 text-gray-500 italic">Please authenticate to load chat history.</div>';
+                    }
+                });
+
+            } catch (e) {
+                displayError("Failed to initialize Firebase services.");
+                console.error("Firebase Init Error:", e);
+            }
+        }
+
+
+        function listenToHistory() {
+            if (!db || !currentUserId) return;
+
+      
+            const historyCollectionRef = collection(db, 'artifacts', appId, 'users', currentUserId, 'chat_history');
+            
+    
+            const q = query(historyCollectionRef, orderBy('timestamp', 'asc'));
+
+            onSnapshot(q, (snapshot) => {
+           
+                if (initialMessage.parentNode) {
+                    initialMessage.remove();
+                }
+
+                const docs = snapshot.docs;
+               
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const msg = change.doc.data();
+                        renderMessage({
+                            id: change.doc.id,
+                            ...msg,
+                           
+                            timestamp: msg.timestamp ? msg.timestamp.toDate().getTime() : Date.now()
+                        });
+                    }
+                });
+                
+                scrollToBottom();
+                clearError();
+            }, (e) => {
+                displayError("Failed to load chat history in real-time.");
+                console.error("Firestore Error:", e);
+            });
+        }
+
+    
+        async function callGeminiApi(conversationHistory) {
+            const chatHistory = conversationHistory.map(msg => ({
+                role: msg.sender === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.text }]
+            }));
+        
+            const payload = {
+                contents: chatHistory,
+                systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+                config: {
+                    maxOutputTokens: 2048,
+                    temperature: 0.7,
+                }
+            };
+        
+            let response = null;
+            let attempts = 0;
+            const maxRetries = 5;
+        
+            while (attempts < maxRetries) {
+                try {
+              
+                    const fetchUrl = `${API_BASE_URL}?key=${API_KEY}`;
+                    const fetchResponse = await fetch(fetchUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+        
+                    if (!fetchResponse.ok) {
+                        throw new Error(`HTTP error! status: ${fetchResponse.status}`);
+                    }
+        
+                    response = await fetchResponse.json();
+                    break; 
+                } catch (e) {
+                    attempts++;
+                    if (attempts < maxRetries) {
+                        const backoffTime = Math.pow(2, attempts) * 1000;
+                        await delay(backoffTime);
+                    } else {
+                        console.error("Gemini API call failed after multiple retries:", e);
+                        throw new Error("Could not connect to the AI agent. Please try again later.");
+                    }
+                }
+            }
+            
+            const text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) {
+                throw new Error("Received an empty response from the AI agent.");
+            }
+            return text;
+        }
+
+      
+        async function sendMessage(e) {
+            e.preventDefault();
+            if (isProcessing || !currentUserId || messageInput.value.trim() === '') return;
+
+            const userMessageText = messageInput.value.trim();
+            messageInput.value = '';
+            
+            clearError();
+            isProcessing = true;
+            sendButton.disabled = true;
+            messageInput.disabled = true;
+
+            const userMessageData = {
+                text: userMessageText,
+                sender: 'user',
+                timestamp: serverTimestamp(),
+            };
+
+            try {
+                const historyCollectionRef = collection(db, 'artifacts', appId, 'users', currentUserId, 'chat_history');
+                
+               
+                await addDoc(historyCollectionRef, userMessageData);
+
+                const tempMessages = Array.from(chatArea.children).map(node => {
+                    const isUser = node.querySelector('.bg-indigo-600');
+                  
+                    const text = node.querySelector('p')?.textContent || '';
+                    return { sender: isUser ? 'user' : 'coach', text };
+                }).filter(msg => msg.text.length > 0);
+                
+   
+                tempMessages.push({ sender: 'user', text: userMessageText });
+
+          
+                const aiResponseText = await callGeminiApi(tempMessages);
+
+          
+                const aiMessageData = {
+                    text: aiResponseText,
+                    sender: 'coach',
+                    timestamp: serverTimestamp(),
+                };
+                await addDoc(historyCollectionRef, aiMessageData);
+
+            } catch (e) {
+                displayError(e.message || "An unexpected error occurred.");
+            } finally {
+                isProcessing = false;
+                sendButton.disabled = false;
+                messageInput.disabled = false;
+                messageInput.focus();
+            }
+        }
+        
+        // --- Event Listeners and Initialization ---
+
+        window.onload = initializeAppAndAuth;
+
+        messageForm.addEventListener('submit', sendMessage);
+
+    </script>
+</body>
+</html>
