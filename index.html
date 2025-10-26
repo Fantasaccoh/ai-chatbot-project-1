@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple College Chatbot Project</title>
+    <title>Chatbot Project</title>
    
     <script src="https://cdn.tailwindcss.com"></script>
   
@@ -40,7 +40,7 @@
       
         <div id="error-box" class="hidden p-3 mx-4 my-2 text-sm font-medium text-red-700 bg-red-100 rounded-lg shadow-inner"></div>
 
-        <!-- Input Form -->
+      
         <footer class="p-4 border-t bg-gray-50 rounded-b-lg">
             <form id="message-form" class="flex space-x-3">
                 <input
@@ -80,7 +80,7 @@
        
         const API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
         const API_KEY = "";
-        const SYSTEM_INSTRUCTION = "You are 'The Clarity Coach', a straightforward and concise AI designed to help the user organize their thoughts. Keep responses short and action-oriented. Do not use complex language or refer to yourself as an AI or model.";
+        const SYSTEM_INSTRUCTION = "You are an 'Ai Chatbot', a straightforward and concise AI designed to help the user organize their thoughts. Keep responses short and action-oriented. Do not use complex language or refer to yourself as an AI or model.";
         
         
         const chatArea = document.getElementById('chat-area');
@@ -192,7 +192,7 @@
                         userIdDisplay.textContent = `User ID: ${currentUserId}`;
                         messageInput.disabled = false;
                         sendButton.disabled = false;
-                        initialMessage.textContent = 'Welcome! Start chatting with The Clarity Coach.';
+                        initialMessage.textContent = 'Welcome! Start chatting with Ai chat bot! ';
                         
                       
                         listenToHistory();
@@ -292,15 +292,15 @@
                         const backoffTime = Math.pow(2, attempts) * 1000;
                         await delay(backoffTime);
                     } else {
-                        console.error("Gemini API call failed after multiple retries:", e);
-                        throw new Error("Could not connect to the AI agent. Please try again later.");
+                        console.error("failed after multiple retries:", e);
+                        throw new Error("Could not connect. Please try again later.");
                     }
                 }
             }
             
             const text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) {
-                throw new Error("Received an empty response from the AI agent.");
+                throw new Error("Received an empty response.");
             }
             return text;
         }
